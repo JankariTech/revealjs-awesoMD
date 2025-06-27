@@ -49,6 +49,8 @@ const alertIcons = {
 const plugin = () => {
     // The reveal.js instance this plugin is attached to
     let deck
+    const url = new URL(import.meta.url)
+    let baseUrl = url.origin
 
     return {
         id: 'markdown',
@@ -678,6 +680,13 @@ const plugin = () => {
         },
 
         /**
+         * Sets custom base url for loading templates
+         */
+        setBaseUrl: function (url) {
+            baseUrl = url
+        },
+
+        /**
          * Renders the template for each slide
          *
          * Returns the rendered template with the content
@@ -693,8 +702,7 @@ const plugin = () => {
                 const slideContent = content.replace(titleRegex, '').trim()
 
                 options = this.getSlidifyOptions(options)
-                const url = new URL(import.meta.url)
-                const templatePath = `${url.origin}/templates/${options.metadata.slide}-template.html`
+                const templatePath = `${baseUrl}/templates/${options.metadata.slide}-template.html`
                 const xhr = new XMLHttpRequest()
                 xhr.open('GET', templatePath, false)
                 xhr.send()

@@ -555,7 +555,14 @@ const plugin = () => {
                 content = content.replace(/^(\n|\s)+/, '')
             }
 
-            const parsedFrontMatter = fm(content)
+            // const parsedFrontMatter = fm(content)
+            let parsedFrontMatter
+            try {
+                parsedFrontMatter = fm(content)
+            } catch (error) {
+                console.error('Frontmatter parsing error:', error)
+                return ['<p>' + error + '</p>', options]
+            }
 
             content = parsedFrontMatter.body
             if (parsedFrontMatter.frontmatter) {

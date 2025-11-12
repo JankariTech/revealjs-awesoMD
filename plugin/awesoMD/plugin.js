@@ -8,6 +8,7 @@ import { marked } from 'marked'
 import yaml from 'js-yaml'
 import Mustache from 'mustache'
 import fm from 'front-matter'
+import sanitize from 'sanitize-filename'
 
 const DEFAULT_SLIDE_SEPARATOR = '\r?\n---\r?\n',
     DEFAULT_VERTICAL_SEPARATOR = null,
@@ -559,12 +560,11 @@ const plugin = () => {
                 content = content.replace(/^(\n|\s)+/, '')
             }
 
-            // const parsedFrontMatter = fm(content)
             let parsedFrontMatter
             try {
                 parsedFrontMatter = fm(content)
             } catch (error) {
-                console.error('Frontmatter parsing error:', error)
+                console.error('Error while parsing frontmatter:', error)
                 return ['<p>' + error + '</p>', options]
             }
 
@@ -699,22 +699,23 @@ const plugin = () => {
             const sanitizedSlide = this.sanitizeForSlideName(escapedSlide)
             options.attributes = 'class=' + sanitizedSlide
         },
+
         /**
          * Sanitize slide template name
          */
         sanitizeForSlideName: function (input) {
-            if (!input) return ''
-            let str = String(input)
+            if (!input || typeof input !== 'string') return ''
+            // Remove all directory traversal patterns, repeatedly until none remain
+            let sanitized = input
             let previous
             do {
-                previous = str
-                str = str
-                    .replace(/\.\.\//g, '')
-                    .replace(/\.\.\\/g, '')
-                    .replace(/^\/+/g, '')
-                    .replace(/^\.\//g, '')
-            } while (str !== previous)
-            return str.trim()
+                previous = sanitized
+                sanitized = sanitized.replace(/(\.\.[/\\])+|(\.[/\\])/g, '')
+            } while (sanitized !== previous)
+            sanitized = sanitize(sanitized)
+            sanitized = sanitized.replace(/[^a-zA-Z0-9_-]+/g, '-')
+            sanitized = sanitized.replace(/^[.-]+|[.-]+$/g, '')
+            return sanitized
         },
 
         /**
@@ -743,7 +744,6 @@ const plugin = () => {
                 const slideTemplate = options.metadata?.slide
 
                 const sanitizedTemplate = this.sanitizeForSlideName(slideTemplate)
-                console.log(sanitizedTemplate)
                 const templatePath = `${baseUrl}/templates/${sanitizedTemplate}-template.html`
                 const xhr = new XMLHttpRequest()
                 xhr.open('GET', templatePath, false)

@@ -208,6 +208,9 @@ const plugin = () => {
 
             // render the template with the content only if there is metadata
             if (options.metadata) {
+                if (!options.metadata.slide) {
+                    return '<p>Template for slide is not specified. Please provide a valid template name.</p>'
+                }
                 content = this.renderTemplate(content, options)
             }
 
@@ -540,6 +543,7 @@ const plugin = () => {
         },
 
         escapeForHTML: function (input) {
+            if (input === null) return ''
             return input.replace(/([&<>'"])/g, (char) => HTML_ESCAPE_MAP[char])
         },
 
@@ -555,7 +559,13 @@ const plugin = () => {
                 content = content.replace(/^(\n|\s)+/, '')
             }
 
-            const parsedFrontMatter = fm(content)
+            let parsedFrontMatter
+            try {
+                parsedFrontMatter = fm(content)
+            } catch (error) {
+                console.error('Error while parsing frontmatter:', error)
+                return ['<p>' + error + '</p>', options]
+            }
 
             content = parsedFrontMatter.body
             if (parsedFrontMatter.frontmatter) {
@@ -612,7 +622,7 @@ const plugin = () => {
                         throw new Error('The inline metadata is not valid.')
                     }
                     options.metadata = { ...options.metadata, ...metadataYAML }
-                    options.attributes = 'class=' + (options.metadata.slide || '')
+                    this.setSlideClassAttribute(options)
                 } catch (error) {
                     console.error(error)
                     markdown = error.message
@@ -643,7 +653,7 @@ const plugin = () => {
             }
 
             options.metadata = { ...options.metadata, ...inlineMetadata }
-            options.attributes = 'class=' + (options.metadata.slide || '')
+            this.setSlideClassAttribute(options)
             return [markdown, options]
         },
 
@@ -670,13 +680,39 @@ const plugin = () => {
                         break
                     default:
                         if (options.metadata) {
-                            options.attributes = 'class=' + (options.metadata.slide || '')
+                            this.setSlideClassAttribute(options)
                         }
                         break
                 }
             }
 
             return [markdown, options]
+        },
+
+        /**
+         * Sets the class attribute based on slide metadata
+         */
+        setSlideClassAttribute: function (options) {
+            const slideValue = options.metadata?.slide || ''
+            const escapedSlide = this.escapeForHTML(slideValue)
+            const sanitizedSlide = this.sanitizeForSlideName(escapedSlide)
+            options.attributes = 'class=' + sanitizedSlide
+        },
+
+        /**
+         * Sanitize slide template name
+         */
+        sanitizeForSlideName: function (input) {
+            if (typeof input !== 'string') return ''
+            let sanitized = input.trim()
+            sanitized = sanitized.replace(/\\/g, '/')
+            sanitized = sanitized.replace(/^(\.\.?\/)+/, '')
+            sanitized = sanitized.replace(/\/\.\//g, '/')
+            sanitized = sanitized
+                .replace(/\/+/g, '/')
+                .replace(/-+/g, '-')
+                .replace(/^\/+|\/+$/g, '')
+            return sanitized
         },
 
         /**
@@ -702,7 +738,10 @@ const plugin = () => {
                 const slideContent = content.replace(titleRegex, '').trim()
 
                 options = this.getSlidifyOptions(options)
-                const templatePath = `${baseUrl}/templates/${options.metadata.slide}-template.html`
+                const slideTemplate = options.metadata?.slide
+
+                const sanitizedTemplate = this.sanitizeForSlideName(slideTemplate)
+                const templatePath = `${baseUrl}/templates/${sanitizedTemplate}-template.html`
                 const xhr = new XMLHttpRequest()
                 xhr.open('GET', templatePath, false)
                 xhr.send()
@@ -714,8 +753,9 @@ const plugin = () => {
                         metadata: options.metadata,
                     })
                 } else {
-                    tempDiv.innerHTML = `Template for slide "${options.metadata.slide}" not found.`
+                    const escapedSlideTemplate = this.escapeForHTML(sanitizedTemplate)
                     console.error(`Failed to fetch template. Status: ${xhr.status}`)
+                    return '<p>Template for slide "' + escapedSlideTemplate + '" not found.</p>'
                 }
                 return tempDiv.textContent
             } catch (error) {

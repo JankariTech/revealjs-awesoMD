@@ -23,6 +23,9 @@ And add the following script tag in `index.html` file:
 Create a folder name `templates` in your project root directory where you can add your templates file.
 Name your template file as `<template-name>-template.html`. 
 
+> [!NOTE]
+> Slide names are sanitized to ASCII-characters (a-z, A-Z, 0-9, -, _), Special characters including umlauts (äöüß), accents (éñç), and non-Latin scripts will be transliterated or removed. For best results, use simple Latin filenames.
+
 ```text
 <project-root-directory>
 └── templates

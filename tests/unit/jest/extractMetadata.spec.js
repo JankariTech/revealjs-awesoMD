@@ -391,3 +391,16 @@ some content
         expect(splitedMarkdownContent).toEqual(expectedSplitedMarkdownContent)
     })
 })
+
+describe('sanitizeForSlideName', () => {
+    it.each([
+        [null, ''],
+        [undefined, ''],
+        ['', ''],
+        ['./title-content', 'title-content'],
+        ['../title-content', 'title-content'],
+        ['./templates/title-content', 'templates/title-content'],
+    ])('should sanitize slide names', (input, expected) => {
+        expect(mdPlugin.sanitizeForSlideName(input)).toBe(expected)
+    })
+})

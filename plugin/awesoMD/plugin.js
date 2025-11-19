@@ -8,7 +8,6 @@ import { marked } from 'marked'
 import yaml from 'js-yaml'
 import Mustache from 'mustache'
 import fm from 'front-matter'
-import sanitize from 'sanitize-filename'
 
 const DEFAULT_SLIDE_SEPARATOR = '\r?\n---\r?\n',
     DEFAULT_VERTICAL_SEPARATOR = null,
@@ -704,17 +703,15 @@ const plugin = () => {
          * Sanitize slide template name
          */
         sanitizeForSlideName: function (input) {
-            if (!input || typeof input !== 'string') return ''
-            // Remove all directory traversal patterns, repeatedly until none remain
-            let sanitized = input
-            let previous
-            do {
-                previous = sanitized
-                sanitized = sanitized.replace(/(\.\.[/\\])+|(\.[/\\])/g, '')
-            } while (sanitized !== previous)
-            sanitized = sanitize(sanitized)
-            sanitized = sanitized.replace(/[^a-zA-Z0-9_-]+/g, '-')
-            sanitized = sanitized.replace(/^[.-]+|[.-]+$/g, '')
+            if (typeof input !== 'string') return ''
+            let sanitized = input.trim()
+            sanitized = sanitized.replace(/\\/g, '/')
+            sanitized = sanitized.replace(/^(\.\.?\/)+/, '')
+            sanitized = sanitized.replace(/\/\.\//g, '/')
+            sanitized = sanitized
+                .replace(/\/+/g, '/')
+                .replace(/-+/g, '-')
+                .replace(/^\/+|\/+$/g, '')
             return sanitized
         },
 

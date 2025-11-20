@@ -30,7 +30,7 @@ const HTML_ESCAPE_MAP = {
 }
 
 const yamlRegex = /```(yaml|yml)\n([\s\S]*?)```(\n[\s\S]*)?/g
-const headingWithMetadataRegex = /^#+\s.*::\w+: *\w+.*$/m
+const headingWithMetadataRegex = /^#+\s.*::\w+:\s*.*$/m
 const metadataRegex = /::(\w+):([^::\n]*)/g
 const alertBlockRegex = /^\r*>\s*(\[!(\w+)\]).*\n(\s*\s*>.*\n?)*/gm
 const alertTypeRegex = /^\r*>*\s*(\[!(\w+)\])/gm

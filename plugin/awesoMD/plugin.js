@@ -741,7 +741,7 @@ const plugin = () => {
                 const slideTemplate = options.metadata?.slide
 
                 const sanitizedTemplate = this.sanitizeForSlideName(slideTemplate)
-                const templatePath = `${baseUrl}/templates/${sanitizedTemplate}-template.html`
+                const templatePath = `${baseUrl}/${sanitizedTemplate}-template.html`
                 const xhr = new XMLHttpRequest()
                 xhr.open('GET', templatePath, false)
                 xhr.send()

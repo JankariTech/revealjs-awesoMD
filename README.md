@@ -20,21 +20,20 @@ And add the following script tag in `index.html` file:
 
 # Adding Templates
 
-Create a folder name `templates` in your project root directory where you can add your templates file.
-Name your template file as `<template-name>-template.html`. 
+Create your template file as `<template-name>-template.html`. Make sure that all the slide templates are inside same directory. 
 
 > [!NOTE]
 > Slide names are sanitized to ASCII-characters (a-z, A-Z, 0-9, -, _), Special characters including umlauts (äöüß), accents (éñç), and non-Latin scripts will be transliterated or removed. For best results, use simple Latin filenames.
 
 ```text
 <project-root-directory>
-└── templates
+└── <templates-folder>
     ├── <template-name-1>-template.html
     ├── <template-name-2>-template.html
     └ ...
 ```
 
-If the `templates` folder is not in the root directory, then the path to the templates folder can be set as below:
+The path to the templates folder can be set as below:
 ```javascript
 const awesoMd = RevealAwesoMD()
 awesoMd.setBaseUrl(<path-to-templates-folder>)

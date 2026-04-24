@@ -51,6 +51,7 @@ const plugin = () => {
     let deck
     const url = new URL(import.meta.url)
     let baseUrl = url.origin
+    let authToken = null
 
     return {
         id: 'markdown',
@@ -723,6 +724,13 @@ const plugin = () => {
         },
 
         /**
+         * Sets auth token to authenticate template urls
+         */
+        setAuthToken: function (token) {
+            authToken = token
+        },
+
+        /**
          * Renders the template for each slide
          *
          * Returns the rendered template with the content
@@ -744,6 +752,10 @@ const plugin = () => {
                 const templatePath = `${baseUrl}/${sanitizedTemplate}-template.html`
                 const xhr = new XMLHttpRequest()
                 xhr.open('GET', templatePath, false)
+                xhr.withCredentials = false
+                if (authToken) {
+                    xhr.setRequestHeader('Authorization', `Bearer ${authToken}`)
+                }
                 xhr.send()
                 const tempDiv = document.createElement('div')
                 if (xhr.status === 200) {

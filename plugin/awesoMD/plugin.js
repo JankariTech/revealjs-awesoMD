@@ -2,6 +2,18 @@
  * The reveal.js markdown plugin. Handles parsing of
  * markdown inside of presentations as well as loading
  * of external markdown documents.
+ *
+ * IMPORTANT: Breaking Change (since v2.0.0)
+ * =========================================
+ * The following methods are now async and return a Promise:
+ * - slidify()
+ * - createMarkdownSlide()
+ * - renderTemplate()
+ *
+ * If you are calling `slidify()` directly, you must now use `await` or `.then()`.
+ *
+ * Example:
+ *   const html = await mdPlugin.slidify(markdown, options)
  */
 
 import { marked } from 'marked'
@@ -191,8 +203,11 @@ const plugin = () => {
 
         /**
          * Helper function for constructing a markdown slide.
+         *
+         * @async
+         * @returns {Promise<string>}
          */
-        createMarkdownSlide: function (content, options) {
+        createMarkdownSlide: async function (content, options) {
             options = this.getSlidifyOptions(options)
 
             const notesMatch = content.split(new RegExp(options.notesSeparator, 'mgi'))
@@ -212,7 +227,7 @@ const plugin = () => {
                 if (!options.metadata.slide) {
                     return '<p>Template for slide is not specified. Please provide a valid template name.</p>'
                 }
-                content = this.renderTemplate(content, options)
+                content = await this.renderTemplate(content, options)
             }
 
             return '<script type="text/template">' + content + '</script>'
@@ -221,8 +236,25 @@ const plugin = () => {
         /**
          * Parses a data string into multiple slides based
          * on the passed in separator arguments.
+         *
+         * @async
+         * @param {string} markdown - The markdown content
+         * @param {{
+         *     separator?: string,
+         *     verticalSeparator?: string | null,
+         *     notesSeparator?: string,
+         *     separateByHeading?: boolean,
+         *     attributes?: string,
+         *     metadata?: Object,
+         *     hasDataSeparator?: boolean,
+         *     slideSeparator?: string
+         * }} [options] - Parsing options
+         * @returns {Promise<string>} HTML containing <section> element
+         *
+         * @breaking This method became async in v2.0.0 because template rendering
+         *           now supports blob: URLs and async template loading.
          */
-        slidify: function (markdown, options) {
+        slidify: async function (markdown, options) {
             options = this.getSlidifyOptions(options)
 
             // add slide separator in the case heading indicates the new slide
@@ -295,15 +327,15 @@ const plugin = () => {
                 if (sectionStack[i] instanceof Array) {
                     markdownSections += '<section ' + slideOptions.attributes + '>'
 
-                    sectionStack[i].forEach((child) => {
+                    for (const child of sectionStack[i]) {
                         ;[content, slideOptions] = this.separateInlineMetadataAndMarkdown(child, slideOptions)
                         markdownSections +=
                             '<section ' +
                             slideOptions.attributes +
                             ' data-markdown>' +
-                            this.createMarkdownSlide(content, slideOptions) +
+                            (await this.createMarkdownSlide(content, slideOptions)) +
                             '</section>'
-                    })
+                    }
 
                     markdownSections += '</section>'
                 } else {
@@ -312,7 +344,7 @@ const plugin = () => {
                         '<section ' +
                         slideOptions.attributes +
                         ' data-markdown>' +
-                        this.createMarkdownSlide(content, slideOptions) +
+                        (await this.createMarkdownSlide(content, slideOptions)) +
                         '</section>'
                 }
             }
@@ -338,8 +370,8 @@ const plugin = () => {
                             externalPromises.push(
                                 self.loadExternalMarkdown(section).then(
                                     // Finished loading external file
-                                    function (xhr) {
-                                        section.outerHTML = self.slidify(xhr.responseText, {
+                                    async function (xhr) {
+                                        section.outerHTML = await self.slidify(xhr.responseText, {
                                             separator: section.getAttribute('data-separator'),
                                             verticalSeparator: section.getAttribute('data-separator-vertical'),
                                             notesSeparator: section.getAttribute('data-separator-notes'),
@@ -365,14 +397,21 @@ const plugin = () => {
                                 )
                             )
                         } else {
-                            section.outerHTML = self.slidify(self.getMarkdownFromSlide(section), {
-                                separator: section.getAttribute('data-separator'),
-                                verticalSeparator: section.getAttribute('data-separator-vertical'),
-                                notesSeparator: section.getAttribute('data-separator-notes'),
-                                separateByHeading: section.hasAttribute('data-separator-by-heading'),
-                                hasDataSeparator: section.hasAttribute('data-separator'),
-                                attributes: self.getForwardedAttributes(section),
-                            })
+                            // wrap in a promise to handle async slidify for inline markdown
+                            externalPromises.push(
+                                self
+                                    .slidify(self.getMarkdownFromSlide(section), {
+                                        separator: section.getAttribute('data-separator'),
+                                        verticalSeparator: section.getAttribute('data-separator-vertical'),
+                                        notesSeparator: section.getAttribute('data-separator-notes'),
+                                        separateByHeading: section.hasAttribute('data-separator-by-heading'),
+                                        hasDataSeparator: section.hasAttribute('data-separator'),
+                                        attributes: self.getForwardedAttributes(section),
+                                    })
+                                    .then((html) => {
+                                        section.outerHTML = html
+                                    })
+                            )
                         }
                     })
 
@@ -646,8 +685,11 @@ const plugin = () => {
                 if (metadataMatches) {
                     metadataMatches.forEach((metadataMatch) => {
                         const [key, value] = metadataMatch.replace('::', '').split(':')
-                        inlineMetadata[key.trim()] = value.trim()
-                        const metadataPattern = new RegExp(`::\\b${key.trim()}\\b:\\s*${value.trim()}`)
+                        const trimmedKey = key.trim()
+                        const trimmedValue = value.trim()
+                        inlineMetadata[trimmedKey] = trimmedValue
+                        const escapedValue = this.escapeForRegex(trimmedValue)
+                        const metadataPattern = new RegExp(`::\\b${trimmedKey}\\b:\\s*${escapedValue}`, 'g')
                         markdown = markdown.replace(metadataPattern, '')
                     })
                 }
@@ -694,10 +736,36 @@ const plugin = () => {
          * Sets the class attribute based on slide metadata
          */
         setSlideClassAttribute: function (options) {
-            const slideValue = options.metadata?.slide || ''
-            const escapedSlide = this.escapeForHTML(slideValue)
-            const sanitizedSlide = this.sanitizeForSlideName(escapedSlide)
-            options.attributes = 'class=' + sanitizedSlide
+            let slideValue = options.metadata?.slide || ''
+            let decodedSlideValue = slideValue
+
+            try {
+                decodedSlideValue = decodeURIComponent(slideValue)
+            } catch (e) {
+                decodedSlideValue = slideValue
+            }
+
+            if (decodedSlideValue.startsWith('blob:')) {
+                try {
+                    const url = new URL(decodedSlideValue)
+                    const template = url.searchParams.get('template')
+
+                    if (template !== null && template !== '') {
+                        slideValue = template
+                    } else {
+                        slideValue = decodedSlideValue
+                    }
+                } catch (e) {
+                    slideValue = decodedSlideValue
+                }
+
+                const sanitizedSlide = this.sanitizeForSlideName(slideValue)
+                options.attributes = 'class=' + sanitizedSlide
+            } else {
+                const escapedSlide = this.escapeForHTML(slideValue)
+                const sanitizedSlide = this.sanitizeForSlideName(escapedSlide)
+                options.attributes = 'class=' + sanitizedSlide
+            }
         },
 
         /**
@@ -706,14 +774,23 @@ const plugin = () => {
         sanitizeForSlideName: function (input) {
             if (typeof input !== 'string') return ''
             let sanitized = input.trim()
-            sanitized = sanitized.replace(/\\/g, '/')
-            sanitized = sanitized.replace(/^(\.\.?\/)+/, '')
-            sanitized = sanitized.replace(/\/\.\//g, '/')
+            if (sanitized === '') return ''
+            if (sanitized.startsWith('blob:')) {
+                sanitized = sanitized.replace(/[^a-zA-Z0-9._:\/%\-]/g, '-')
+                sanitized = sanitized.replace(/-+/g, '-')
+                sanitized = sanitized.replace(/^-+|-+$/g, '')
+                return sanitized
+            }
             sanitized = sanitized
+                .replace(/\\/g, '/')
+                .replace(/^(\.\.?\/)+/, '')
+                .replace(/\/\.\//g, '/')
                 .replace(/\/+/g, '/')
-                .replace(/-+/g, '-')
                 .replace(/^\/+|\/+$/g, '')
-            return sanitized
+            sanitized = sanitized.replace(/[^a-zA-Z0-9._\/%\-]/g, '-')
+            sanitized = sanitized.replace(/-+/g, '-')
+            sanitized = sanitized.replace(/^-+|-+$/g, '')
+            return sanitized || ''
         },
 
         /**
@@ -730,12 +807,19 @@ const plugin = () => {
             authToken = token
         },
 
+        escapeForRegex: function (str) {
+            return str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+        },
+
         /**
          * Renders the template for each slide
          *
          * Returns the rendered template with the content
+         *
+         * @async
+         * @returns {Promise<string>}
          */
-        renderTemplate: function (content, options) {
+        renderTemplate: async function (content, options) {
             try {
                 const titleRegex = /^#+\r*(.*?)\r*$/m
                 const matches = content.match(titleRegex)
@@ -747,32 +831,66 @@ const plugin = () => {
 
                 options = this.getSlidifyOptions(options)
                 const slideTemplate = options.metadata?.slide
+                let decodedTemplateURI = slideTemplate
+                try {
+                    decodedTemplateURI = decodeURIComponent(slideTemplate)
+                } catch (error) {
+                    decodedTemplateURI = slideTemplate
+                }
 
-                const sanitizedTemplate = this.sanitizeForSlideName(slideTemplate)
-                const templatePath = `${baseUrl}/${sanitizedTemplate}-template.html`
-                const xhr = new XMLHttpRequest()
-                xhr.open('GET', templatePath, false)
-                xhr.withCredentials = false
-                if (authToken) {
-                    xhr.setRequestHeader('Authorization', `Bearer ${authToken}`)
-                }
-                xhr.send()
-                const tempDiv = document.createElement('div')
-                if (xhr.status === 200) {
-                    tempDiv.innerHTML = Mustache.render(xhr.responseText, {
-                        title: title,
-                        content: slideContent,
-                        metadata: options.metadata,
-                    })
+                let templateHtml
+                if (typeof decodedTemplateURI === 'string' && decodedTemplateURI.startsWith('blob:')) {
+                    let url
+                    try {
+                        url = new URL(decodedTemplateURI)
+                    } catch (error) {
+                        const escapedSlideTemplate = this.escapeForHTML(
+                            this.sanitizeForSlideName(slideTemplate || 'unknown')
+                        )
+                        return `<p>Invalid blob template URL: "${escapedSlideTemplate}".</p>`
+                    }
+                    url.search = ''
+                    const response = await fetch(url.href)
+
+                    if (!response.ok) {
+                        const escapedSlideTemplate = this.escapeForHTML(this.sanitizeForSlideName(slideTemplate))
+                        return `<p>Failed to fetch blob template: ${response.status}. Template "${escapedSlideTemplate}" not found.</p>`
+                    }
+
+                    templateHtml = await response.text()
                 } else {
-                    const escapedSlideTemplate = this.escapeForHTML(sanitizedTemplate)
-                    console.error(`Failed to fetch template. Status: ${xhr.status}`)
-                    return '<p>Template for slide "' + escapedSlideTemplate + '" not found.</p>'
+                    const sanitizedTemplate = this.sanitizeForSlideName(slideTemplate)
+                    const templatePath = `${baseUrl}/${sanitizedTemplate}-template.html`
+                    const headers = {}
+                    if (authToken) {
+                        headers.Authorization = `Bearer ${authToken}`
+                    }
+                    const response = await fetch(templatePath, { headers })
+                    if (!response.ok) {
+                        const escaped = this.escapeForHTML(sanitizedTemplate)
+                        console.error(`Failed to fetch template. Status: ${response.status}`)
+                        return `<p>Template for slide "${escaped}" not found. Status: ${response.status}</p>`
+                    }
+
+                    templateHtml = await response.text()
                 }
+
+                const tempDiv = document.createElement('div')
+                tempDiv.innerHTML = Mustache.render(templateHtml, {
+                    title: title,
+                    content: slideContent,
+                    metadata: options.metadata,
+                })
+
                 return tempDiv.textContent
             } catch (error) {
                 console.error('Error:', error)
-                throw error
+                const escapedSlideTemplate = this.escapeForHTML(
+                    this.sanitizeForSlideName(options?.metadata?.slide || 'unknown')
+                )
+                const errorMessage = error instanceof Error ? error.message : String(error)
+                const escapedErrorMessage = this.escapeForHTML(errorMessage)
+                return `<p>Failed to render template "${escapedSlideTemplate}". Error: ${escapedErrorMessage}</p>`
             }
         },
 

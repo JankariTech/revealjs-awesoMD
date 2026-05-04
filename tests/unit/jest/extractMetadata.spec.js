@@ -222,7 +222,7 @@ some content
 })
 
 describe('slidify', () => {
-    it('should return error message when data-separator is provided with data-separator-by-heading', () => {
+    it('should return error message when data-separator is provided with data-separator-by-heading', async () => {
         const options = {
             separateByHeading: true,
             hasDataSeparator: true,
@@ -233,7 +233,7 @@ describe('slidify', () => {
             '</section>'
 
         const markdownContent = fs.readFileSync('tests/unit/testFiles/noSlideSeparator.md', 'utf-8')
-        const returnedMarkdownSection = mdPlugin.slidify(markdownContent, { ...options })
+        const returnedMarkdownSection = await mdPlugin.slidify(markdownContent, { ...options })
         expect(returnedMarkdownSection).toEqual(expectedMarkdownSection)
     })
 })
@@ -402,5 +402,149 @@ describe('sanitizeForSlideName', () => {
         ['./templates/title-content', 'templates/title-content'],
     ])('should sanitize slide names', (input, expected) => {
         expect(mdPlugin.sanitizeForSlideName(input)).toBe(expected)
+    })
+})
+
+describe('setSlideClassAttribute', () => {
+    let options
+
+    beforeEach(() => {
+        options = {
+            metadata: {},
+        }
+    })
+
+    it('should extract "template" param from blob URL and set class attribute', () => {
+        options.metadata.slide =
+            'blob%3Ahttps%3A//localhost%3A9200/8ea4d1aa-f6f8-4dc8-80d3-908c40814634?template=title-content'
+        mdPlugin.setSlideClassAttribute(options)
+        expect(options.attributes).toBe('class=title-content')
+    })
+
+    it('should fallback to original value if no "template" parameter exists', () => {
+        options.metadata.slide = 'blob%3Ahttps%3A//localhost%3A9200/8ea4d1aa-f6f8-4dc8-80d3-908c40814634'
+        mdPlugin.setSlideClassAttribute(options)
+        expect(options.attributes).toBe('class=blob:https://localhost:9200/8ea4d1aa-f6f8-4dc8-80d3-908c40814634')
+    })
+
+    it('should handle decodeURIComponent errors gracefully', () => {
+        options.metadata.slide = '%invalid%utf8%sequence'
+        mdPlugin.setSlideClassAttribute(options)
+        expect(options.attributes).toBe('class=%invalid%utf8%sequence')
+    })
+
+    it('should handle invalid blob URL gracefully', () => {
+        options.metadata.slide = 'blob:invalid-url-no-colon'
+        mdPlugin.setSlideClassAttribute(options)
+        expect(options.attributes).toBe('class=blob:invalid-url-no-colon')
+    })
+
+    it('should do nothing if metadata.slide is missing', () => {
+        options.metadata = {}
+        mdPlugin.setSlideClassAttribute(options)
+        expect(options.attributes).toBe('class=')
+    })
+})
+
+describe('renderTemplate', () => {
+    let originalFetch
+
+    beforeEach(() => {
+        jest.clearAllMocks()
+        mdPlugin.setBaseUrl('http://localhost:9200')
+        originalFetch = global.fetch
+        if (typeof global.fetch === 'undefined') {
+            global.fetch = jest.fn()
+        }
+    })
+
+    afterEach(() => {
+        global.fetch = originalFetch
+        mdPlugin.setAuthToken(null)
+    })
+
+    it('should fetch and render template from blob URL', async () => {
+        const blobUrl = 'blob%3Ahttps%3A//localhost%3A9200/8ea4d1aa-f6f8-4dc8-80d3-908c40814634?template=title-content'
+        const templateHtml = `<div class="title">{{{title}}}</div>
+<div class="content">{{{content}}}</div>`
+
+        global.fetch = jest.fn().mockResolvedValue({
+            ok: true,
+            text: jest.fn().mockResolvedValue(templateHtml),
+        })
+        const content = '# Test Slide\n\nThis is the slide content.'
+        const options = {
+            metadata: { slide: blobUrl },
+        }
+        const result = await mdPlugin.renderTemplate(content, options)
+        expect(global.fetch).toHaveBeenCalledWith('blob:https://localhost:9200/8ea4d1aa-f6f8-4dc8-80d3-908c40814634')
+        expect(result).toContain('Test Slide')
+        expect(result).toContain('This is the slide content.')
+    })
+
+    it('should return error message when blob fetch fails', async () => {
+        global.fetch = jest.fn().mockResolvedValue({
+            ok: false,
+            status: 404,
+        })
+        const options = {
+            metadata: {
+                slide: 'blob%3Ahttps%3A//localhost%3A9200/abc123?template=missing',
+            },
+        }
+        const result = await mdPlugin.renderTemplate('# Test Slide', options)
+        expect(result).toContain('Failed to fetch blob template')
+        expect(result).toContain('404')
+    })
+
+    it('should fetch and render normal template from baseUrl', async () => {
+        const templateHtml = `<div class="title">{{{title}}}</div>
+<div class="content">{{{content}}}</div>`
+
+        jest.spyOn(global, 'fetch').mockResolvedValueOnce({
+            ok: true,
+            text: jest.fn().mockResolvedValue(templateHtml),
+        })
+
+        const content = '# Hello World\n\nThis is normal content.'
+        const options = {
+            metadata: { slide: 'title-content' },
+        }
+        const result = await mdPlugin.renderTemplate(content, options)
+        expect(global.fetch).toHaveBeenCalledWith('http://localhost:9200/title-content-template.html', { headers: {} })
+        expect(result).toContain('Hello World')
+        expect(result).toContain('This is normal content.')
+    })
+
+    it('should handle non-200 response for normal template', async () => {
+        jest.spyOn(global, 'fetch').mockResolvedValueOnce({
+            ok: false,
+            status: 404,
+        })
+
+        const options = {
+            metadata: { slide: 'missing-template' },
+        }
+        const result = await mdPlugin.renderTemplate('# Test Slide', options)
+        expect(result).toContain('Template for slide "missing-template" not found')
+        expect(result).toContain('404')
+    })
+
+    it('should include Authorization header when authToken is set', async () => {
+        mdPlugin.setAuthToken('auth-token')
+
+        jest.spyOn(global, 'fetch').mockResolvedValueOnce({
+            ok: true,
+            text: jest.fn().mockResolvedValue('<div>Template rendered</div>'),
+        })
+        const options = {
+            metadata: { slide: 'secure-slide' },
+        }
+        await mdPlugin.renderTemplate('# Test', options)
+        expect(global.fetch).toHaveBeenCalledWith('http://localhost:9200/secure-slide-template.html', {
+            headers: {
+                Authorization: 'Bearer auth-token',
+            },
+        })
     })
 })

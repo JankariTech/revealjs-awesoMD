@@ -867,7 +867,7 @@ const plugin = () => {
                     }
                     const response = await fetch(templatePath, { headers })
                     if (!response.ok) {
-                        const escaped = this.escapeForHTML(sanitizedTemplate)
+                        const escaped = this.escapeForHTML(slideTemplate)
                         console.error(`Failed to fetch template. Status: ${response.status}`)
                         return `<p>Template for slide "${escaped}" not found. Status: ${response.status}</p>`
                     }

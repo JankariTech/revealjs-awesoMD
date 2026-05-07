@@ -850,7 +850,11 @@ const plugin = () => {
                         return `<p>Invalid blob template URL: "${escapedSlideTemplate}".</p>`
                     }
                     url.search = ''
-                    const response = await fetch(url.href)
+                    const response = await fetch(url.href, {
+                        headers: {
+                            'Cache-Control': 'no-cache',
+                        },
+                    })
 
                     if (!response.ok) {
                         const escapedSlideTemplate = this.escapeForHTML(this.sanitizeForSlideName(slideTemplate))

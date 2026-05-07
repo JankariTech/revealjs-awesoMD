@@ -477,7 +477,9 @@ describe('renderTemplate', () => {
             metadata: { slide: blobUrl },
         }
         const result = await mdPlugin.renderTemplate(content, options)
-        expect(global.fetch).toHaveBeenCalledWith('blob:https://localhost:9200/8ea4d1aa-f6f8-4dc8-80d3-908c40814634')
+        expect(global.fetch).toHaveBeenCalledWith('blob:https://localhost:9200/8ea4d1aa-f6f8-4dc8-80d3-908c40814634', {
+            headers: { 'Cache-Control': 'no-cache' },
+        })
         expect(result).toContain('Test Slide')
         expect(result).toContain('This is the slide content.')
     })
